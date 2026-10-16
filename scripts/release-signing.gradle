@@ -1,0 +1,19 @@
+// Local APK builds keep signing secrets outside generated Android sources.
+gradle.beforeProject { project ->
+    project.pluginManager.withPlugin('com.android.application') {
+        project.extensions.getByName('androidComponents').finalizeDsl { android ->
+            def required = ['CLOSEBY_RELEASE_STORE_FILE', 'CLOSEBY_RELEASE_STORE_PASSWORD', 'CLOSEBY_RELEASE_KEY_ALIAS', 'CLOSEBY_RELEASE_KEY_PASSWORD']
+            if (required.any { !System.getenv(it) }) {
+                throw new GradleException('Missing Closeby release credentials. Build with scripts/build-android.ps1 -Variant release.')
+            }
+            def signing = android.signingConfigs.maybeCreate('closebyRelease')
+            signing.storeFile = new File(System.getenv('CLOSEBY_RELEASE_STORE_FILE'))
+            signing.storePassword = System.getenv('CLOSEBY_RELEASE_STORE_PASSWORD')
+            signing.keyAlias = System.getenv('CLOSEBY_RELEASE_KEY_ALIAS')
+            signing.keyPassword = System.getenv('CLOSEBY_RELEASE_KEY_PASSWORD')
+            signing.storeType = 'PKCS12'
+            android.buildTypes.getByName('release').signingConfig = signing
+            android.buildTypes.getByName('release').debuggable = false
+        }
+    }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "closeby-notification-server",
+  "private": true,
+  "main": "index.cjs",
+  "engines": { "node": "22" },
+  "scripts": { "build": "node ../scripts/build-notification-functions.cjs", "test": "node --test ../tests/push-server.cjs" },
+  "dependencies": { "firebase-admin": "14.5.0", "firebase-functions": "7.4.0" }
+}

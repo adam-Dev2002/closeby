@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#060d14">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="description" content="Join your people in a private Closeby space. Open the app to review your invitation.">
+  <title>You're invited · Closeby</title>
+  <link rel="stylesheet" href="/invite.css">
+  <script src="/invite.js" defer></script>
+</head>
+<body>
+  <main>
+    <a class="wordmark" href="/" aria-label="Closeby home"><img src="/closeby-logo.png" alt="" width="46" height="46"><span>closeby</span></a>
+    <section class="card">
+      <span class="eyebrow">A LITTLE CLOSER, TOGETHER</span>
+      <h1 id="title">You're invited.</h1>
+      <p id="description">Open Closeby to review this invitation and join your private space.</p>
+      <div id="invitation" hidden>
+        <div class="code"><span>YOUR SPACE CODE</span><strong id="code"></strong></div>
+        <a id="open" class="button primary" href="#">Open in Closeby <span aria-hidden="true">↗</span></a>
+        <button id="copy" class="button secondary" type="button">Copy invitation code</button>
+        <p id="feedback" class="feedback" role="status" aria-live="polite"></p>
+      </div>
+      <div class="install">
+        <p>New to Closeby?</p>
+        <p class="small">Ask the person inviting you for the latest Closeby Android app. Install it, then return here and tap <b>Open in Closeby</b>.</p>
+      </div>
+    </section>
+    <p class="privacy">Your space is private. You choose when to share your location.</p>
+  </main>
+</body>
+</html>

@@ -1,0 +1,5 @@
+{
+  "functions": [{ "source": "functions", "codebase": "notifications", "predeploy": ["node scripts/build-notification-functions.cjs"] }],
+  "firestore": { "rules": "firestore.rules", "indexes": ".verification/firestore.spark.indexes.json" },
+  "emulators": { "auth": { "port": 9099 }, "firestore": { "port": 8080 }, "functions": { "port": 5001 }, "ui": { "enabled": false }, "singleProjectMode": true }
+}

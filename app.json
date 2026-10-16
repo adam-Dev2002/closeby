@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "Closeby",
+    "slug": "closeby-phone-tracker",
+    "version": "0.1.7",
+    "icon": "./assets/branding/closeby-logo.png",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#060D14",
+    "platforms": ["android", "ios", "web"],
+    "ios": {
+      "supportsTablet": true
+    },
+    "web": {
+      "favicon": "./assets/branding/closeby-logo.png",
+      "name": "Closeby · Live Location",
+      "shortName": "Closeby",
+      "description": "Private location sharing for family and friends."
+    }
+  }
+}

@@ -1,0 +1,14 @@
+allprojects {
+  def cache = findProperty('closebyVerifiedMaven')
+  if (cache != null && new File(cache.toString()).isDirectory()) {
+    repositories {
+      def localReact = maven {
+        name = 'ClosebyVerifiedReactCache'
+        url = uri(cache.toString())
+        content { includeModule('com.facebook.react', 'react-android') }
+      }
+      remove(localReact)
+      addFirst(localReact)
+    }
+  }
+}

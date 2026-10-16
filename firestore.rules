@@ -1,0 +1,378 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function isSelf(uid) { return signedIn() && request.auth.uid == uid; }
+    function isMember(circleId) {
+      return signedIn() && exists(/databases/$(database)/documents/circles/$(circleId)/members/$(request.auth.uid));
+    }
+    function memberAfter(circleId, uid) {
+      return existsAfter(/databases/$(database)/documents/circles/$(circleId)/members/$(uid));
+    }
+    function circleOwnerAfter(circleId) {
+      return getAfter(/databases/$(database)/documents/circles/$(circleId)).data.ownerId;
+    }
+    function hasNoOtherCircle(uid, circleId) {
+      return !exists(/databases/$(database)/documents/users/$(uid))
+        || get(/databases/$(database)/documents/users/$(uid)).data.circleId == null
+        || get(/databases/$(database)/documents/users/$(uid)).data.circleId == circleId;
+    }
+    function validInvitation(circleId, code) {
+      let invitation = get(/databases/$(database)/documents/invitations/$(code)).data;
+      return validInviteCode(code)
+        && invitation.circleId == circleId
+        && invitation.ownerId == circleOwnerAfter(circleId)
+        && invitation.expiresAt > request.time;
+    }
+    function nullableNumber(value) { return value == null || value is number; }
+    function validInviteCode(value) {
+      return value is string && (value.matches('^[A-HJ-NP-Z2-9]{12}$') || value.matches('^[0-9A-F]{32}$'));
+    }
+    function validAvatarId(value) {
+      return value == null || (value is string && value.matches('^face-[1-8]-(blue|purple|coral|mint|gold|slate)$'));
+    }
+    function validMemberProfile(data) {
+      return (!('name' in data) || (data.name is string && data.name.size() > 0 && data.name.size() <= 100))
+        && (!('photoURL' in data) || data.photoURL == null || (data.photoURL is string && data.photoURL.size() <= 2048))
+        && (!('avatarId' in data) || validAvatarId(data.avatarId));
+    }
+    function validLocation(location) {
+      return location == null || (
+        location is map
+        && location.keys().hasAll(['latitude', 'longitude', 'accuracy', 'speed', 'heading', 'timestamp'])
+        && location.keys().hasOnly(['latitude', 'longitude', 'accuracy', 'speed', 'heading', 'timestamp'])
+        && location.latitude is number && location.latitude >= -90 && location.latitude <= 90
+        && location.longitude is number && location.longitude >= -180 && location.longitude <= 180
+        && location.timestamp is number && location.timestamp >= 0
+        && nullableNumber(location.accuracy) && nullableNumber(location.speed) && nullableNumber(location.heading)
+      );
+    }
+
+    function notificationSettings(data) {
+      return data.keys().hasAll(['enabled', 'arrivals', 'speed', 'speedLimitKmh', 'zones', 'generation', 'updatedAt'])
+        && data.keys().hasOnly(['enabled', 'arrivals', 'speed', 'speedLimitKmh', 'zones', 'generation', 'updatedAt'])
+        && data.enabled is bool && data.arrivals is bool && data.speed is bool
+        && data.speedLimitKmh is int && data.speedLimitKmh >= 10 && data.speedLimitKmh <= 200
+        && data.generation is string && data.generation.matches('^[a-f0-9-]{36}$')
+        // These places are owner-private, never shared with other members.
+        // The trusted sender validates every place before evaluating arrivals.
+        // Bounding the list here keeps 20 places below the rules expression budget.
+        && data.zones is list && data.zones.size() <= 20
+        && data.updatedAt == request.time;
+    }
+
+    match /appStatus/notifications { allow get: if signedIn(); allow list, write: if false; }
+    match /users/{uid}/pushDevices/{installationId} {
+      allow get, list, delete: if isSelf(uid);
+      allow create, update: if isSelf(uid) && installationId.matches('^[a-f0-9-]{36}$')
+        && request.resource.data.keys().hasAll(['token', 'platform', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['token', 'platform', 'updatedAt'])
+        && request.resource.data.token is string && request.resource.data.token.size() > 0 && request.resource.data.token.size() <= 4096
+        && request.resource.data.platform == 'android' && request.resource.data.updatedAt == request.time;
+    }
+    match /users/{uid}/notificationSettings/main {
+      allow get, delete: if isSelf(uid);
+      allow list: if false;
+      allow create, update: if isSelf(uid) && notificationSettings(request.resource.data);
+    }
+
+    match /profiles/{uid} {
+      allow get, delete: if isSelf(uid);
+      allow list: if false;
+      allow create, update: if isSelf(uid)
+        && request.resource.data.keys().hasAll(['avatarId', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['avatarId', 'updatedAt'])
+        && validAvatarId(request.resource.data.avatarId)
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    match /users/{uid} {
+      allow get: if isSelf(uid);
+      allow list, delete: if false;
+      allow create, update: if isSelf(uid)
+        && request.resource.data.keys().hasOnly(['circleId'])
+        && request.resource.data.keys().hasAll(['circleId'])
+        && (
+          (request.resource.data.circleId == null
+            && (!exists(/databases/$(database)/documents/users/$(uid))
+              || resource.data.circleId == null
+              || !memberAfter(resource.data.circleId, uid)))
+          || (request.resource.data.circleId is string
+            && hasNoOtherCircle(uid, request.resource.data.circleId)
+            && memberAfter(request.resource.data.circleId, uid))
+        );
+    }
+
+    match /circles/{circleId} {
+      allow get: if isMember(circleId);
+      allow list, delete: if false;
+      allow create: if signedIn()
+        && request.resource.data.keys().hasAll(['name', 'ownerId', 'inviteCode', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['name', 'ownerId', 'inviteCode', 'createdAt'])
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 60
+        && request.resource.data.inviteCode is string
+        && validInviteCode(request.resource.data.inviteCode)
+        && request.resource.data.createdAt == request.time
+        && memberAfter(circleId, request.auth.uid);
+      allow update: if isMember(circleId) && resource.data.ownerId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'inviteCode'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 60
+        && request.resource.data.inviteCode is string
+        && validInviteCode(request.resource.data.inviteCode);
+
+      match /members/{uid} {
+        allow get, list: if isMember(circleId);
+        allow create: if isSelf(uid)
+          && request.resource.data.keys().hasAll(['uid', 'inviteCode', 'joinedAt'])
+          && request.resource.data.keys().hasOnly(['uid', 'inviteCode', 'joinedAt', 'name', 'photoURL', 'avatarId'])
+          && validMemberProfile(request.resource.data)
+          && request.resource.data.uid == uid
+          && request.resource.data.joinedAt == request.time
+          && hasNoOtherCircle(uid, circleId)
+          && getAfter(/databases/$(database)/documents/users/$(uid)).data.circleId == circleId
+          && (circleOwnerAfter(circleId) == uid || validInvitation(circleId, request.resource.data.inviteCode));
+        allow update: if isMember(circleId)
+          && request.resource.data.keys().hasAll(['uid', 'inviteCode', 'joinedAt'])
+          && request.resource.data.keys().hasOnly(['uid', 'inviteCode', 'joinedAt', 'name', 'photoURL', 'avatarId', 'canRequestMedia'])
+          && request.resource.data.get('canRequestMedia', false) is bool
+          && ((isSelf(uid) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'photoURL', 'avatarId']))
+            || (get(/databases/$(database)/documents/circles/$(circleId)).data.ownerId == request.auth.uid
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['canRequestMedia'])))
+          && request.resource.data.uid == uid
+          && validMemberProfile(request.resource.data);
+        allow delete: if isSelf(uid)
+          && !existsAfter(/databases/$(database)/documents/circles/$(circleId)/devices/$(uid))
+          && !existsAfter(/databases/$(database)/documents/circles/$(circleId)/historyConsent/$(uid))
+          && getAfter(/databases/$(database)/documents/users/$(uid)).data.circleId == null;
+      }
+
+      match /historyConsent/{uid} {
+        allow get: if isSelf(uid) || isMember(circleId);
+        allow list: if isMember(circleId);
+        allow create, update: if isSelf(uid) && isMember(circleId)
+          && request.resource.data.keys().hasAll(['enabled', 'generation', 'startedAt', 'updatedAt'])
+          && request.resource.data.keys().hasOnly(['enabled', 'generation', 'startedAt', 'updatedAt'])
+          && request.resource.data.enabled is bool
+          && request.resource.data.generation is string && request.resource.data.generation.matches('^[A-Za-z0-9]{20}$')
+          && request.resource.data.startedAt is timestamp
+          && (request.resource.data.enabled ? request.resource.data.startedAt == request.time
+            : (!exists(/databases/$(database)/documents/circles/$(circleId)/historyConsent/$(uid))
+              || request.resource.data.startedAt == resource.data.startedAt))
+          && request.resource.data.updatedAt == request.time;
+        allow delete: if isSelf(uid);
+      }
+
+      match /activity/{uid}/samples/{sampleId} {
+        function historyVisible() {
+          let consent = get(/databases/$(database)/documents/circles/$(circleId)/historyConsent/$(uid)).data;
+          return isMember(circleId)
+            && exists(/databases/$(database)/documents/circles/$(circleId)/members/$(uid))
+            && consent.enabled && resource.data.generation == consent.generation;
+        }
+        allow get: if isSelf(uid) || historyVisible();
+        allow list: if request.query.limit != null && request.query.limit <= 3000 && (isSelf(uid) || historyVisible());
+        allow create: if isSelf(uid) && isMember(circleId)
+          && get(/databases/$(database)/documents/circles/$(circleId)/historyConsent/$(uid)).data.enabled
+          && get(/databases/$(database)/documents/circles/$(circleId)/historyConsent/$(uid)).data.generation == request.resource.data.generation
+          && get(/databases/$(database)/documents/circles/$(circleId)/devices/$(uid)).data.sharing
+          && request.resource.data.keys().hasAll(['id', 'sessionId', 'fix', 'place', 'distanceMeters', 'generation', 'capturedAt', 'expiresAt', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['id', 'sessionId', 'fix', 'place', 'distanceMeters', 'generation', 'capturedAt', 'expiresAt', 'createdAt'])
+          && request.resource.data.id == sampleId && sampleId.size() <= 100
+          && request.resource.data.sessionId is string && request.resource.data.sessionId.size() > 0 && request.resource.data.sessionId.size() <= 80
+          && validLocation(request.resource.data.fix) && request.resource.data.fix != null
+          && request.resource.data.fix.accuracy is number && request.resource.data.fix.accuracy >= 0 && request.resource.data.fix.accuracy <= 80
+          && request.resource.data.fix.timestamp == request.resource.data.capturedAt
+          && request.resource.data.capturedAt >= get(/databases/$(database)/documents/circles/$(circleId)/historyConsent/$(uid)).data.startedAt.toMillis()
+          && request.resource.data.capturedAt >= request.time.toMillis() - 2592000000
+          && request.resource.data.capturedAt <= request.time.toMillis() + 30000
+          && (request.resource.data.place == null || (request.resource.data.place is string && request.resource.data.place.size() <= 80))
+          && request.resource.data.distanceMeters is number && request.resource.data.distanceMeters >= 0
+          && request.resource.data.expiresAt is timestamp
+          && request.resource.data.expiresAt.toMillis() == request.resource.data.capturedAt + 2592000000
+          && request.resource.data.createdAt == request.time;
+        allow update: if false;
+        allow delete: if isSelf(uid);
+      }
+
+      match /messages/{messageId} {
+        allow get, list: if isMember(circleId);
+        allow create: if isMember(circleId)
+          && request.resource.data.keys().hasAll(['senderId', 'senderName', 'text', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['senderId', 'senderName', 'text', 'createdAt'])
+          && request.resource.data.senderId == request.auth.uid
+          && request.resource.data.senderName is string
+          && request.resource.data.senderName.size() > 0 && request.resource.data.senderName.size() <= 100
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000
+          && request.resource.data.text.matches('[\\s\\S]*[^\\s][\\s\\S]*')
+          && request.resource.data.createdAt == request.time;
+        allow update, delete: if false;
+      }
+
+      match /alerts/{alertId} {
+        // Private alerts can be queried by their sender and owner; public
+        // alerts are visible to every current member. Rules are not filters.
+        // A member may test an unused ID before an idempotent transaction.
+        allow get: if isMember(circleId)
+          && (!exists(/databases/$(database)/documents/circles/$(circleId)/alerts/$(alertId))
+            || resource.data.audience == 'everyone'
+            || resource.data.senderId == request.auth.uid
+            || resource.data.ownerId == request.auth.uid);
+        allow list: if isMember(circleId)
+          && (resource.data.audience == 'everyone'
+            || resource.data.senderId == request.auth.uid
+            || resource.data.ownerId == request.auth.uid);
+        allow create: if isMember(circleId)
+          && request.resource.data.keys().hasAll(['senderId', 'senderName', 'audience', 'ownerId', 'location', 'text', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['senderId', 'senderName', 'audience', 'ownerId', 'location', 'text', 'createdAt'])
+          && request.resource.data.senderId == request.auth.uid
+          && request.resource.data.senderName is string
+          && request.resource.data.senderName.size() > 0 && request.resource.data.senderName.size() <= 100
+          && request.resource.data.ownerId == get(/databases/$(database)/documents/circles/$(circleId)).data.ownerId
+          && (request.resource.data.audience == 'everyone'
+            || (request.resource.data.audience == 'owner'
+              && exists(/databases/$(database)/documents/circles/$(circleId)/members/$(request.resource.data.ownerId))))
+          && validLocation(request.resource.data.location)
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 500
+          && request.resource.data.text.matches('[\\s\\S]*[^\\s][\\s\\S]*')
+          && request.resource.data.createdAt == request.time;
+        allow update, delete: if false;
+      }
+
+      match /calls/{callId} {
+        function callParticipant(data) {
+          return signedIn() && (data.calleeId == request.auth.uid || data.callerId == request.auth.uid);
+        }
+        function callMembers(data) {
+          return exists(/databases/$(database)/documents/circles/$(circleId)/members/$(data.callerId))
+            && exists(/databases/$(database)/documents/circles/$(circleId)/members/$(data.calleeId));
+        }
+        function callReadable(data) { return callParticipant(data) && callMembers(data); }
+        function authorizedRequest(data) {
+          return !('access' in data)
+            || get(/databases/$(database)/documents/circles/$(circleId)).data.ownerId == data.callerId
+            || get(/databases/$(database)/documents/circles/$(circleId)/members/$(data.callerId)).data.get('canRequestMedia', false) == true;
+        }
+        function validDescription(value, kind) {
+          return value is map && value.keys().hasAll(['type', 'sdp']) && value.keys().hasOnly(['type', 'sdp'])
+            && value.type == kind && value.sdp is string && value.sdp.size() > 0 && value.sdp.size() <= 128000;
+        }
+        function validCall(data) {
+          return data.keys().hasAll(['callerId', 'calleeId', 'callerName', 'calleeName', 'mode', 'status', 'offer', 'answer', 'createdAt', 'updatedAt', 'expiresAt'])
+            && data.keys().hasOnly(['callerId', 'calleeId', 'callerName', 'calleeName', 'mode', 'status', 'offer', 'answer', 'createdAt', 'updatedAt', 'expiresAt', 'access'])
+            && (!('access' in data) || (data.access == 'microphone' && data.mode == 'voice') || (data.access in ['front', 'back'] && data.mode == 'video'))
+            && data.callerId is string && data.callerId.size() > 0 && data.callerId.size() <= 128
+            && data.calleeId is string && data.calleeId.size() > 0 && data.calleeId.size() <= 128
+            && data.callerId != data.calleeId
+            && data.callerName is string && data.callerName.size() > 0 && data.callerName.size() <= 100
+            && data.calleeName is string && data.calleeName.size() > 0 && data.calleeName.size() <= 100
+            && data.mode in ['voice', 'video'] && data.status in ['ringing', 'accepted', 'declined', 'ended']
+            && (data.offer == null || validDescription(data.offer, 'offer'))
+            && (data.answer == null || validDescription(data.answer, 'answer'))
+            && data.createdAt is timestamp && data.updatedAt == request.time && data.expiresAt is timestamp;
+        }
+        function acceptCall() {
+          return authorizedRequest(resource.data) && request.auth.uid == resource.data.calleeId && resource.data.status == 'ringing'
+            && resource.data.expiresAt > request.time && request.resource.data.status == 'accepted'
+            && request.resource.data.offer == null && request.resource.data.answer == null
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'expiresAt'])
+            && request.resource.data.expiresAt >= request.time + duration.value(7170, 's')
+            && request.resource.data.expiresAt <= request.time + duration.value(7230, 's');
+        }
+        function finishCall() {
+          return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+            && ((request.resource.data.status == 'declined' && resource.data.status == 'ringing'
+                && request.auth.uid == resource.data.calleeId)
+              || (request.resource.data.status == 'ended' && resource.data.status in ['ringing', 'accepted']));
+        }
+        function offerCall() {
+          return authorizedRequest(resource.data) && resource.data.status == 'accepted' && resource.data.expiresAt > request.time
+            && request.auth.uid == resource.data.callerId && resource.data.offer == null
+            && validDescription(request.resource.data.offer, 'offer')
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['offer', 'updatedAt']);
+        }
+        function answerCall() {
+          return authorizedRequest(resource.data) && resource.data.status == 'accepted' && resource.data.expiresAt > request.time
+            && request.auth.uid == resource.data.calleeId && resource.data.offer != null && resource.data.answer == null
+            && validDescription(request.resource.data.answer, 'answer')
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['answer', 'updatedAt']);
+        }
+        allow get: if callReadable(resource.data);
+        allow list: if request.query.limit != null && request.query.limit <= 10 && callReadable(resource.data);
+        allow create: if signedIn() && validCall(request.resource.data)
+          && request.resource.data.callerId == request.auth.uid && callMembers(request.resource.data) && authorizedRequest(request.resource.data)
+          && request.resource.data.status == 'ringing' && request.resource.data.offer == null && request.resource.data.answer == null
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.expiresAt >= request.time + duration.value(60, 's')
+          && request.resource.data.expiresAt <= request.time + duration.value(180, 's');
+        allow update: if callReadable(resource.data) && validCall(request.resource.data)
+          && (acceptCall() || finishCall() || offerCall() || answerCall());
+        allow delete: if false;
+
+        match /candidates/{candidateId} {
+          function parentCall() { return get(/databases/$(database)/documents/circles/$(circleId)/calls/$(callId)).data; }
+          allow get: if callReadable(parentCall());
+          allow list: if request.query.limit != null && request.query.limit <= 150 && callReadable(parentCall());
+          allow create: if callReadable(parentCall()) && authorizedRequest(parentCall()) && parentCall().status == 'accepted' && parentCall().expiresAt > request.time
+            && request.resource.data.keys().hasAll(['uid', 'candidate', 'sdpMid', 'sdpMLineIndex', 'createdAt'])
+            && request.resource.data.keys().hasOnly(['uid', 'candidate', 'sdpMid', 'sdpMLineIndex', 'createdAt'])
+            && request.resource.data.uid == request.auth.uid
+            && request.resource.data.candidate is string && request.resource.data.candidate.size() > 0 && request.resource.data.candidate.size() <= 4096
+            && (request.resource.data.sdpMid == null || (request.resource.data.sdpMid is string && request.resource.data.sdpMid.size() <= 256))
+            && (request.resource.data.sdpMLineIndex == null || (request.resource.data.sdpMLineIndex is int && request.resource.data.sdpMLineIndex >= 0 && request.resource.data.sdpMLineIndex <= 64))
+            && request.resource.data.createdAt == request.time;
+          allow update, delete: if false;
+        }
+      }
+
+      match /devices/{uid} {
+        // Paused devices contain profile/status only: writes below require
+        // location:null. Membership gates every coordinate read and query.
+        allow get, list: if isMember(circleId);
+        allow create, update: if isSelf(uid) && isMember(circleId)
+          && request.resource.data.keys().hasAll(['id', 'ownerId', 'name', 'photoURL', 'platform', 'batteryLevel', 'location', 'sharing', 'lastSeen', 'updatedAt'])
+          && request.resource.data.keys().hasOnly(['id', 'ownerId', 'name', 'photoURL', 'avatarId', 'platform', 'batteryLevel', 'location', 'sharing', 'lastSeen', 'updatedAt'])
+          && request.resource.data.id == uid && request.resource.data.ownerId == uid
+          && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 100
+          && (request.resource.data.photoURL == null || (request.resource.data.photoURL is string && request.resource.data.photoURL.size() <= 2048))
+          && (!('avatarId' in request.resource.data) || validAvatarId(request.resource.data.avatarId))
+          && request.resource.data.platform is string && request.resource.data.platform.size() <= 30
+          && (request.resource.data.batteryLevel == null || (request.resource.data.batteryLevel is number && request.resource.data.batteryLevel >= 0 && request.resource.data.batteryLevel <= 1))
+          && request.resource.data.sharing is bool
+          && (request.resource.data.sharing || request.resource.data.location == null)
+          && validLocation(request.resource.data.location)
+          && request.resource.data.lastSeen is number
+          && request.resource.data.updatedAt == request.time;
+        allow delete: if isSelf(uid) && isMember(circleId);
+      }
+    }
+
+    match /invitations/{code} {
+      // A full, cryptographically random code is a bearer invitation. Listing
+      // invitations is forbidden; explicitly entering one is the join action.
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn()
+        && validInviteCode(code)
+        && request.resource.data.keys().hasAll(['circleId', 'ownerId', 'createdAt', 'expiresAt'])
+        && request.resource.data.keys().hasOnly(['circleId', 'ownerId', 'createdAt', 'expiresAt'])
+        && request.resource.data.circleId is string
+        && request.resource.data.ownerId == request.auth.uid
+        && circleOwnerAfter(request.resource.data.circleId) == request.auth.uid
+        && memberAfter(request.resource.data.circleId, request.auth.uid)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.data.expiresAt > request.time
+        && request.resource.data.expiresAt <= request.time + duration.value(8, 'd');
+      allow update: if false;
+      allow delete: if signedIn() && resource.data.ownerId == request.auth.uid
+        && isMember(resource.data.circleId);
+    }
+
+    match /{document=**} { allow read, write: if false; }
+  }
+}

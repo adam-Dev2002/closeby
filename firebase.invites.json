@@ -1,0 +1,19 @@
+{
+  "hosting": {
+    "site": "closeby-511018",
+    "public": ".verification/invite-hosting",
+    "ignore": ["firebase.invites.json", "**/node_modules/**", "downloads/**", "release.json"],
+    "rewrites": [{ "source": "/j/**", "destination": "/index.html" }],
+    "headers": [
+      { "source": "**", "headers": [
+        { "key": "Referrer-Policy", "value": "no-referrer" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
+        { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" },
+        { "key": "Cache-Control", "value": "no-store" }
+      ] },
+      { "source": "/.well-known/assetlinks.json", "headers": [{ "key": "Content-Type", "value": "application/json" }] }
+    ]
+  }
+}
