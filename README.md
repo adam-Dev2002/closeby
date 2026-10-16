@@ -12,6 +12,16 @@ The Android development build is verified on the emulator with native background
 
 The default **Satellite + streets** map shows Google satellite imagery with roads and place labels, blue pins, and white recorded GPS trails. Google Dark, Google Street, Satellite, and Terrain are available in Map style. Satellite keeps the imagery's original colors; app controls stay dark. Required Google branding and source credits remain visible above the device card. Using the project's Android key requires an installed Closeby development build; Expo Go has its own embedded credentials. See [Google Maps setup](docs/GOOGLE_MAPS_SETUP.md). The ArcGIS renderer and saved key are retained as an alternative.
 
+## Screenshots
+
+Android emulator and browser captures of Closeby. Locations, routes, and account names shown here come from local tests. Click a screenshot to open it at full size.
+
+| Sign in (browser) | Live map (Android) |
+| --- | --- |
+| [<img src="docs/screenshots/sign-in.png" alt="Closeby sign-in screen with Google and email login" width="300">](docs/screenshots/sign-in.png) | [<img src="docs/screenshots/map-android.png" alt="Closeby Android satellite map with a device marker, battery level, and GPS controls" width="300">](docs/screenshots/map-android.png) |
+| **History & activity (browser)** | **Device access approval (browser)** |
+| [<img src="docs/activity-history-web.png" alt="Closeby activity history with a recorded route, stops, distance, and timeline" width="300">](docs/activity-history-web.png) | [<img src="docs/screenshots/device-access-approval.png" alt="Closeby device access request with explicit one-time camera and microphone approval and decline controls" width="300">](docs/screenshots/device-access-approval.png) |
+
 ## Open it on Android
 
 For a standalone APK your family can install without a development server, follow [Build and share the Android APK](docs/APK_RELEASE.md). The local release command creates a signed file in `dist/android/` using a private key stored outside the app.
@@ -58,7 +68,7 @@ Profile pins include measured battery percentages and a selected-person arrival/
 
 Battery, speed, and accuracy come from device APIs. Unavailable readings are shown as unknown. The app does not invent addresses, cellular signal strength, or travel routes.
 
-Screenshots: [Map](docs/live-map-android.png), [Login](docs/live-auth-android.png), [Spaces on Android](docs/live-spaces-android.png), [Safety on Android](docs/live-safety-android.png), [Safety on web](docs/live-safety-web.png), [Spaces on web](docs/live-spaces-web.png), [Settings](docs/live-settings-android.png), [Geofence](docs/live-geofence-android.png), [History](docs/live-history-android.png).
+See the [screenshot gallery](#screenshots) above. Additional captures: [Spaces on Android](docs/live-spaces-android.png), [Safety on Android](docs/live-safety-android.png), [Safety on web](docs/live-safety-web.png), [Spaces on web](docs/live-spaces-web.png), and the [activity calendar](docs/activity-calendar-android.png).
 
 ## Speed warnings and emergency alerts
 
